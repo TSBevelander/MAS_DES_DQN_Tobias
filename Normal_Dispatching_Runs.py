@@ -56,17 +56,73 @@ def list_duplicates(seq):
 def job_init(choice, job):
     if choice == 0:
         index_job = 0
-    else:
+    elif choice == 1:
+        priority = []
+        for ii, j in enumerate(job):
+            priority.append(j.processingTime[j.currentOperation - 1] / j.priority)
+        index_job = np.argmin(priority)
+    elif choice == 2:
+        priority = []
+        for ii, j in enumerate(job):
+            priority.append(remain_processing_time(j) / j.priority)
+        index_job = np.argmin(priority)
+    elif choice == 3:
         priority = []
         for ii, j in enumerate(job):
             priority.append(j.dueDate[j.numberOfOperations] / j.priority)
+        index_job = np.argmin(priority)
+    else:
+        priority = []
+        for ii, j in enumerate(job):
+            priority.append(j.dueDate[j.currentOperation] / j.priority)
         index_job = np.argmin(priority)
 
     return index_job
 
 
+def bid_calulculation_other(pool, noMachines, meanSetup, meanProcessingTime, meanDueDate, maxDueDate, minDueDate,
+                            due_date, processingTime, current_time, setup_time, priority, r_proc):
+    if meanSetup == 0:
+        meanSetup = 0.01
+
+    mu = pool / noMachines
+    eta = meanSetup / meanProcessingTime
+    if mu > 5:
+        beta = 0.4 + 10 / (mu ** 2) - eta / 7
+    else:
+        beta = 0.4 + 10 / (mu ** 2) - eta / 7
+    tau = 1 - meanDueDate / ((beta * meanSetup + meanProcessingTime) * mu)
+    R = (maxDueDate - minDueDate) / ((beta * meanSetup + meanProcessingTime) * mu)
+
+    if (tau < 0.5) | ((eta < 0.5) & (mu > 5)):
+        k_1 = 1.2 * np.log(mu) - R - 0.5
+    else:
+        k_1 = 1.2 * np.log(mu) - R
+
+    if tau < 0.8:
+        k_2 = tau / (1.8 * np.sqrt(eta))
+    else:
+        k_2 = tau / (2 * np.sqrt(eta))
+
+    k_1 = 2
+
+    # print(mu)
+    bid = priority / processingTime * np.exp(
+        -max(0, (due_date - r_proc - current_time)) / (k_1 * meanProcessingTime)) * np.exp(
+        -setup_time / (k_2 * meanSetup))
+
+    # if bid > 10 ** 9:
+    #     print(eta, mu, tau)
+
+    return bid
+
+
 def job_seq(job, env, k, choice, setuptime):
     priority = []
+    meanProcTime = np.mean([jj.processingTime[jj.currentOperation - 1] for jj in job])
+    meanDueDate = np.mean([[jj.dueDate[jj.numberOfOperations]] for jj in job])
+    maxDueDate = max([jj.dueDate[jj.numberOfOperations] for jj in job])
+    minDueDate = min([jj.dueDate[jj.numberOfOperations] for jj in job])
     if choice == 0:
         # FCFS
         index_job = 0
@@ -77,51 +133,69 @@ def job_seq(job, env, k, choice, setuptime):
             # WSPT
             if choice == 1:
                 priority.append((j.processingTime[j.currentOperation - 1] + setup_time) / j.priority)
-            # WCR
             elif choice == 2:
-                priority_new = (j.dueDate[j.numberOfOperations] - j.processingTime[j.currentOperation - 1] - setup_time - env.now) / (
-                    remain_processing_time(j))
-                if priority_new > 0:
-                    priority.append(priority_new / j.priority)
-                else:
-                    priority.append(priority_new * j.priority)
+                priority.append(remain_processing_time(j) / j.priority)
             # WEDD
             elif choice == 3:
                 priority.append(j.dueDate[j.numberOfOperations] / j.priority)
             # WODD
             elif choice == 4:
                 priority.append(j.dueDate[j.currentOperation] / j.priority)
-            # WMDD
+            # WCR
             elif choice == 5:
-                priority.append(1 / j.priority * max(j.processingTime[j.currentOperation - 1] + setup_time,
-                                                     j.dueDate[j.numberOfOperations] - env.now))
-            # SLACK
-            elif choice == 6:
-                priority_new = (j.dueDate[j.currentOperation] - j.processingTime[j.currentOperation - 1] - setup_time - env.now)
+                priority_new = (j.dueDate[j.numberOfOperations] - j.processingTime[
+                    j.currentOperation - 1] - setup_time - env.now) / (
+                                   remain_processing_time(j))
                 if priority_new > 0:
                     priority.append(priority_new / j.priority)
                 else:
                     priority.append(priority_new * j.priority)
-                # priority.append((j.dueDate[j.currentOperation] - j.processingTime - setuptime - env.now) / j.priority)
-            # WCOVERT
-            else:
-                n = j.dueDate[j.numberOfOperations] - k * (remain_processing_time(j) + setup_time)
-                u = j.dueDate[j.numberOfOperations] - remain_processing_time(j) - setup_time
-                if env.now >= u:
-                    c_i = 1
-                elif (n <= env.now) & (env.now < u):
-                    c_i = (env.now - n) / (u - n)
+            # SLACK
+            elif choice == 6:
+                priority_new = (j.dueDate[j.currentOperation] - j.processingTime[
+                    j.currentOperation - 1] - setup_time - env.now)
+                if priority_new > 0:
+                    priority.append(priority_new / j.priority)
                 else:
-                    c_i = 0
-                priority.append(j.priority * c_i / remain_processing_time(j))
+                    priority.append(priority_new * j.priority)
+            # WMDD
+            elif choice == 7:
+                priority.append(1 / j.priority * max(j.processingTime[j.currentOperation - 1] + setup_time,
+                                                     j.dueDate[j.numberOfOperations] - env.now))
+            # WCOVERT
+            elif choice == 8:
+                # n = j.dueDate[j.currentOperation] - k * (remain_processing_time(j)) - setup_time
+                # u = j.dueDate[j.currentOperation] - j.processingTime[j.currentOperation - 1] - setup_time
+                # if env.now >= u:
+                #     c_i = 1
+                # elif (n <= env.now) & (env.now < u):
+                #     c_i = (env.now - n) / (u - n)
+                # else:
+                #     c_i = 0
+                c_i = j.priority / j.processingTime[j.currentOperation - 1] * max(0, 1 - max(0, j.dueDate[
+                    j.numberOfOperations] - env.now - remain_processing_time(j)) / (k * remain_processing_time(j) -
+                                                                                    j.processingTime[
+                                                                                        j.currentOperation - 1] - setup_time))
+                # print(c_i)
+                priority.append(c_i)
+                # priority.append(j.priority * c_i / j.processingTime[j.currentOperation - 1])
+            else:
+                prio = bid_calulculation_other(len(job), 1, np.mean(setuptime), meanProcTime, meanDueDate, maxDueDate,
+                                               minDueDate, j.dueDate[j.numberOfOperations], j.processingTime[
+                                                   j.currentOperation - 1], env.now, setup_time, j.priority,
+                                               remain_processing_time(j))
+                priority.append(prio)
 
-        if choice == 7:
+        if (choice == 8) | (choice == 9):
             index_job = np.argmax(priority)
         else:
             index_job = np.argmin(priority)
 
     return index_job
 
+
+# pool, noMachines, meanSetup, meanProcessingTime, meanDueDate, maxDueDate, minDueDate,
+#                             due_date, processingTime, current_time, setup_time, priority
 
 def machine_choice(env, job, noOfMachines, currentWC, job_shop, machine, store, mac_choice, job_choice):
     machine_index = []
@@ -161,7 +235,7 @@ def remain_processing_time(job):
     return total_rp
 
 
-def next_workstation(job, job_shop, env, min_job, max_job):
+def next_workstation(job, job_shop, env, min_job, max_job, max_wip):
     if job.currentOperation + 1 <= job.numberOfOperations:
         job.currentOperation += 1
         nextWC = operationOrder[job.type - 1][job.currentOperation - 1]
@@ -180,10 +254,10 @@ def next_workstation(job, job_shop, env, min_job, max_job):
                 job_shop.finish_time = env.now
                 job_shop.end_event.succeed()
 
-        # if (job_shop.WIP > 200) | (env.now > 7_000):
-        #     job_shop.end_event.succeed()
-        #     job_shop.early_termination = 1
-        #     job_shop.finish_time = env.now
+        if env.now > 20_000:
+            job_shop.end_event.succeed()
+            job_shop.early_termination = 1
+            job_shop.finish_time = env.now
 
 
 def normalize(value, max_value, min_value):
@@ -214,7 +288,7 @@ def put_job_in_queue(currentWC, choice, job, job_shop, env, machines):
 
 
 def machine_processing(job_shop, current_WC, machine_number, env, last_job, machine,
-                       makespan, seq_choice, k, min_job, max_job):
+                       makespan, seq_choice, k, min_job, max_job, max_wip):
     while True:
         relative_machine = machine_number_WC[current_WC - 1].index(machine_number)
         if machine.items:
@@ -238,7 +312,7 @@ def machine_processing(job_shop, current_WC, machine_number, env, last_job, mach
             last_job[relative_machine] = next_job.type
             machine.items.remove(next_job)
             yield env.timeout(tip)
-            next_workstation(next_job, job_shop, env, min_job, max_job)
+            next_workstation(next_job, job_shop, env, min_job, max_job, max_wip)
         else:
             yield job_shop.condition_flag[(relative_machine, current_WC - 1)]
             job_shop.condition_flag[(relative_machine, current_WC - 1)] = simpy.Event(env)
@@ -256,31 +330,22 @@ def cfp_wc(env, machine, store, job_shop, currentWC, mac_choice, job_choice):
         yield env.timeout(tib)
 
 
-def source(env, number1, interval, job_shop, due_date_setting):
-    if not noJobCap:  # If there is a limit on the number of jobs
-        for ii in range(number1):
-            job = New_Job('job%02d' % ii, env, ii, due_date_setting)
-            firstWC = operationOrder[job.type - 1][0]
-            store = eval('job_shop.storeWC' + str(firstWC))
-            store.put(job)
-            tib = random.expovariate(1.0 / interval)
-            yield env.timeout(tib)
-    else:
-        while True:  # Needed for infinite case as True refers to "until".
-            ii = number1
-            if ii == 999:
-                job_shop.start_time = env.now
-            number1 += 1
-            job = New_Job('job%02d' % ii, env, ii, due_date_setting)
-            job_shop.tardiness.append(-1)
-            job_shop.priority.append(0)
-            job_shop.flowtime.append(0)
-            job_shop.WIP += 1
-            firstWC = operationOrder[job.type - 1][0]
-            store = job_shop.storeWC[firstWC - 1]
-            store.put(job)
-            tib = random.expovariate(1.0 / interval)
-            yield env.timeout(tib)
+def source(env, number1, interval, job_shop, due_date_setting, min_job):
+    while True:  # Needed for infinite case as True refers to "until".
+        ii = number1
+        if ii == min_job:
+            job_shop.start_time = env.now
+        number1 += 1
+        job = New_Job('job%02d' % ii, env, ii, due_date_setting)
+        job_shop.tardiness.append(-1)
+        job_shop.priority.append(0)
+        job_shop.flowtime.append(0)
+        job_shop.WIP += 1
+        firstWC = operationOrder[job.type - 1][0]
+        store = job_shop.storeWC[firstWC - 1]
+        store.put(job)
+        tib = random.expovariate(1.0 / interval)
+        yield env.timeout(tib)
 
 
 class jobShop:
@@ -293,7 +358,7 @@ class jobShop:
         self.last_job_WC = {ii: np.zeros(machinesPerWC[ii]) for ii in noOfWC}
         self.condition_flag = {(ii, jj): simpy.Event(env) for jj in noOfWC for ii in range(machinesPerWC[jj])}
 
-        self.makespan = []
+        self.flowtime = []
         self.tardiness = []
         self.WIP = 0
         self.early_termination = 0
@@ -326,13 +391,77 @@ class New_Job:
             self.dueDate[ii + 1] = self.dueDate[ii] + self.processingTime[ii] * dueDateTightness
 
 
-def do_simulation_with_weights(arrivalMean, due_date_tightness, mac_rule, job_rule, seq_rule, min_job, max_job, max_wip, iter):
+def get_objectives(job_shop, min_job, max_job, early_termination):
+    """This function gathers numerous results from a simulation run"""
+    no_tardy_jobs_p1 = 0
+    no_tardy_jobs_p2 = 0
+    no_tardy_jobs_p3 = 0
+    total_p1 = 0
+    total_p2 = 0
+    total_p3 = 0
+    early_term = 0
+    if early_termination == 1:
+        early_term += 1
+        makespan = job_shop.finish_time - job_shop.start_time
+        flow_time = np.nanmean(job_shop.flowtime[min_job:max_job]) + 10_000 - np.count_nonzero(
+            job_shop.flowtime[min_job:max_job])
+        mean_tardiness = np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job])) + 10_000 - np.count_nonzero(
+            job_shop.flowtime[min_job:max_job])
+        max_tardiness = np.nanmax(job_shop.tardiness[min_job:max_job])
+        for ii in range(min_job, len(job_shop.tardiness)):
+            if job_shop.priority[ii] == 1:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p1 += 1
+                total_p1 += 1
+            elif job_shop.priority[ii] == 3:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p2 += 1
+                total_p2 += 1
+            elif job_shop.priority[ii] == 10:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p3 += 1
+                total_p3 += 1
+        # WIP Level
+        mean_WIP = np.mean(job_shop.totalWIP)
+    else:
+        makespan = job_shop.finish_time - job_shop.start_time
+        # Mean Flow Time
+        flow_time = np.nanmean(job_shop.flowtime[min_job:max_job])
+        # Mean Tardiness
+        mean_tardiness = np.nanmean(job_shop.tardiness[min_job:max_job])
+        # Max Tardiness
+        max_tardiness = max(job_shop.tardiness[min_job:max_job])
+        # print(len(job_shop.priority))
+        # No of Tardy Jobs
+        for ii in range(min_job, max_job):
+            if job_shop.priority[ii] == 1:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p1 += 1
+                total_p1 += 1
+            elif job_shop.priority[ii] == 3:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p2 += 1
+                total_p2 += 1
+            elif job_shop.priority[ii] == 10:
+                if job_shop.tardiness[ii] > 0:
+                    no_tardy_jobs_p3 += 1
+                total_p3 += 1
+        # WIP Level
+        mean_WIP = np.mean(job_shop.totalWIP)
+
+    # print(makespan)
+
+    return makespan, flow_time, mean_tardiness, max_tardiness, no_tardy_jobs_p1 / total_p1, no_tardy_jobs_p2 / total_p2, no_tardy_jobs_p3 / total_p2, mean_WIP, early_term
+
+
+def do_simulation_with_weights(arrivalMean, due_date_tightness, mac_rule, job_rule, seq_rule, min_job, max_job, max_wip,
+                               iter):
     # print(mean_weight_new)
     random.seed(iter)
 
     env = Environment()
     job_shop = jobShop(env)
-    env.process(source(env, number, arrivalMean, job_shop, due_date_tightness))
+    env.process(source(env, 0, arrivalMean, job_shop, due_date_tightness, min_job))
 
     for wc in range(len(machinesPerWC)):
         last_job = job_shop.last_job_WC[wc]
@@ -347,44 +476,48 @@ def do_simulation_with_weights(arrivalMean, due_date_tightness, mac_rule, job_ru
 
             env.process(
                 machine_processing(job_shop, wc + 1, machine_number_WC[wc][ii], env, last_job,
-                                   machine, makespanWC, seq_rule, due_date_tightness, min_job, max_job))
+                                   machine, makespanWC, seq_rule, due_date_tightness, min_job, max_job, max_wip))
 
     job_shop.end_event = env.event()
 
     env.run(until=job_shop.end_event)
-    no_tardy_jobs_p1 = 0
-    no_tardy_jobs_p2 = 0
-    no_tardy_jobs_p3 = 0
-    total_p1 = 0
-    total_p2 = 0
-    total_p3 = 0
-    # Makespan
-    makespan = job_shop.finish_time - job_shop.start_time
-    # Mean Flow Time
-    flow_time = np.nanmean(job_shop.makespan[min_job:max_job])
-    # Mean Tardiness
-    mean_tardiness = np.nanmean(job_shop.tardiness[min_job:max_job])
-    # Max Tardiness
-    max_tardiness = max(job_shop.tardiness[min_job:max_job])
-    # print(len(job_shop.priority))
-    # No of Tardy Jobs
-    for i in range(min_job, max_job):
-        if job_shop.priority[i] == 1:
-            if job_shop.tardiness[i] > 0:
-                no_tardy_jobs_p1 += 1
-            total_p1 += 1
-        elif job_shop.priority[i] == 3:
-            if job_shop.tardiness[i] > 0:
-                no_tardy_jobs_p2 += 1
-            total_p2 += 1
-        elif job_shop.priority[i] == 10:
-            if job_shop.tardiness[i] > 0:
-                no_tardy_jobs_p3 += 1
-            total_p3 += 1
-    # WIP Level
-    mean_WIP = np.mean(job_shop.totalWIP)
 
-    return makespan, flow_time, mean_tardiness, max_tardiness, no_tardy_jobs_p1 / total_p1, no_tardy_jobs_p2 / total_p2, no_tardy_jobs_p3 / total_p2, mean_WIP
+    # no_tardy_jobs_p1 = 0
+    # no_tardy_jobs_p2 = 0
+    # no_tardy_jobs_p3 = 0
+    # total_p1 = 0
+    # total_p2 = 0
+    # total_p3 = 0
+    # # Makespan
+    # makespan = job_shop.finish_time - job_shop.start_time
+    # # Mean Flow Time
+    # flow_time = np.nanmean(job_shop.flowtime[min_job:max_job])
+    # # Mean Tardiness
+    # mean_tardiness = np.nanmean(job_shop.tardiness[min_job:max_job])
+    # # Max Tardiness
+    # max_tardiness = max(job_shop.tardiness[min_job:max_job])
+    # # print(len(job_shop.priority))
+    # # No of Tardy Jobs
+    # for i in range(min_job, max_job):
+    #     if job_shop.priority[i] == 1:
+    #         if job_shop.tardiness[i] > 0:
+    #             no_tardy_jobs_p1 += 1
+    #         total_p1 += 1
+    #     elif job_shop.priority[i] == 3:
+    #         if job_shop.tardiness[i] > 0:
+    #             no_tardy_jobs_p2 += 1
+    #         total_p2 += 1
+    #     elif job_shop.priority[i] == 10:
+    #         if job_shop.tardiness[i] > 0:
+    #             no_tardy_jobs_p3 += 1
+    #         total_p3 += 1
+    # # WIP Level
+    # mean_WIP = np.mean(job_shop.totalWIP)
+
+    makespan, flow_time, mean_tardiness, max_tardiness, no_tardy_jobs_p1, no_tardy_jobs_p2, no_tardy_jobs_p3, mean_WIP, early_term = get_objectives(
+        job_shop, min_job, max_job, job_shop.early_termination)  # Gather all results
+
+    return makespan, flow_time, mean_tardiness, max_tardiness, no_tardy_jobs_p1, no_tardy_jobs_p2, no_tardy_jobs_p3, mean_WIP, early_term
 
 
 if __name__ == '__main__':
@@ -393,13 +526,14 @@ if __name__ == '__main__':
     #
 
     no_machine_rules = 2
-    no_job_rules = 2
-    no_seq_rules = 8
+    no_job_rules = 5
+    no_seq_rules = 10
 
     final_obj = []
     final_std = []
 
     no_runs = 50
+    no_processes = 25
     # final_result = np.zeros((no_runs, 8))
     # results = []
     arrival_time = [1.5429, 1.5429, 1.4572, 1.4572, 1.3804, 1.3804]
@@ -413,24 +547,26 @@ if __name__ == '__main__':
         final_result = np.zeros((no_runs, 8))
         results = []
         print(i)
-        for (d, e, f) in itertools.product(range(no_machine_rules), range(no_job_rules), range(no_seq_rules)):
-            # print(d, e, f)
+        for (f, e, d) in itertools.product(range(no_seq_rules), range(no_job_rules), range(no_machine_rules)):
+            print(d, e, f)
             obj = np.zeros(no_runs)
-            for j in range(2):
-                jobshop_pool = Pool(processes=25)
-                seeds = range(j * 25, j * 25 + 25)
-                func1 = partial(do_simulation_with_weights, arrival_time[i], due_date_settings[i], d, e, f, min_jobs[i], max_jobs[i], wip_max[i])
+            for j in range(int(no_runs / no_processes)):
+                jobshop_pool = Pool(processes=no_processes)
+                seeds = range(j * no_processes, j * no_processes + no_processes)
+                func1 = partial(do_simulation_with_weights, arrival_time[i], due_date_settings[i], d, e, f, min_jobs[i],
+                                max_jobs[i], wip_max[i])
                 makespan_per_seed = jobshop_pool.map(func1, seeds)
                 # print(makespan_per_seed)
-                for h, o in itertools.product(range(25), range(8)):
-                    final_result[h + j * 25][o] = makespan_per_seed[h][o]
+                for h, o in itertools.product(range(no_processes), range(8)):
+                    final_result[h + j * no_processes][o] = makespan_per_seed[h][o]
             results.append(list(np.mean(final_result, axis=0)))
             print(results)
 
         results = pd.DataFrame(results,
-                               columns=['Makespan', 'Mean Flow Time', 'Mean Weighted Tardiness', 'Max Weighted Tardiness',
+                               columns=['Makespan', 'Mean Flow Time', 'Mean Weighted Tardiness',
+                                        'Max Weighted Tardiness',
                                         'No. Tardy Jobs P1', 'No. Tardy Jobs P2', 'No. Tardy Jobs P3', 'Mean WIP'])
-        file_name = f"Results/Dispatching-{utilization[i]}-{due_date_settings[i]}.csv"
+        file_name = f"Results/Dispatching-{utilization[i]}-{due_date_settings[i]}-1.csv"
         results.to_csv(file_name)
 
     # with open(filename2, 'w') as file2:

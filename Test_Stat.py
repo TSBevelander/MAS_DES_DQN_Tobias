@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 from scipy import stats
 import itertools
 
-str1 = "Results/Attributes_Final_85-4.csv"
+str1 = "Results/Attributes_Final_90-6.csv"
 df = pd.read_csv(str1, header=None)
 df = df.dropna()
 results = df.values.tolist()
@@ -22,10 +23,17 @@ skip_seq = [[3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [3, 3], [0, 3], [1, 
 def column(matrix, ii):
     return [row[ii] for row in matrix]
 
+new_res = []
+for i in range(100):
+    new_res.append(column(results, 0)[i] - column(results, 7)[i])
+
+plt.hist(new_res)
+plt.show()
 
 pair = []
 pair2 = []
 for i in range(0, len(skip_seq) - 1):
+    print(stats.shapiro(column(results, i)))
     tt, tp = stats.ttest_rel(column(results, 0), column(results, i + 1), axis=0, nan_policy='propagate',
                              alternative='two-sided')
     format_float = "{:.2f}".format((np.mean(column(results, i + 1)) - np.mean(column(results, 0))))
@@ -35,8 +43,6 @@ for i in range(0, len(skip_seq) - 1):
             pair.append(skip_bid[i + 1][0])
         else:
             pair.append(skip_seq[i + 1][0] + 8)
-
-
 
 # for i in range(0, len(skip_seq) - 1):
 #     tt, tp = stats.ttest_rel(column(results, 0), column(results, i + 1), axis=0, nan_policy='propagate',

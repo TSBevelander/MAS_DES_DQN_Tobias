@@ -12,6 +12,7 @@ from functools import partial
 
 import numpy as np
 # import matplotlib.cbook
+import pandas as pd
 import simpy
 from pathos.multiprocessing import ProcessingPool as Pool
 from simpy import *
@@ -354,7 +355,7 @@ class jobShop:
         self.storeWC5 = job_poolwc5
 
         self.test_weights = weights
-        self.makespan = []
+        self.flowtime = []
         self.tardiness = []
         self.WIP = 0
         self.early_termination = 0
@@ -431,7 +432,7 @@ def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due
             max_tard[0] = 1000
         else:
             objective_new[0] = np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job])) + 10_000 - np.count_nonzero(
-                job_shop.makespan[min_job:max_job]) + 0.01 * max(job_shop.tardiness[min_job:max_job])
+                job_shop.flowtime[min_job:max_job]) + 0.01 * max(job_shop.tardiness[min_job:max_job])
             max_tard[0] = np.nanmax(job_shop.tardiness[min_job:max_job])
     else:
         objective_new[0] = np.nanmean(job_shop.tardiness[min_job:max_job]) + 0.01 * max(
@@ -473,7 +474,7 @@ def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due
             max_tard[1] = 1000
         else:
             objective_new[1] = np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job])) + 10_000 - np.count_nonzero(
-                job_shop.makespan[min_job:max_job]) + 0.01 * max(job_shop.tardiness[min_job:max_job])
+                job_shop.flowtime[min_job:max_job]) + 0.01 * max(job_shop.tardiness[min_job:max_job])
             max_tard[1] = np.nanmax(job_shop.tardiness[min_job:max_job])
     else:
         objective_new[1] = np.nanmean(job_shop.tardiness[min_job:max_job]) + 0.01 * max(
@@ -489,6 +490,9 @@ def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due
 
 def run_linear(filename1, filename2, arrival_time_mean, due_date_k, alpha, bid_skip, seq_skip, norm_range, min_job,
                max_job, wip_max):
+    # str1 = "Runs/Final_runs/Run-weights-85-6.csv"
+    # df = pd.read_csv(str1, header=None)
+    # mean_weight = df.values.tolist()
     file1 = open(filename1, "w")
     mean_weight = np.zeros((sum(machinesPerWC), totalAttributes))
     std_weight = np.zeros((sum(machinesPerWC), totalAttributes))
@@ -622,18 +626,18 @@ if __name__ == '__main__':
     skip_bid = [[7, 7], [2, 7], [4, 7], [5, 7]]
     skip_seq = [[3, 3], [3, 3], [3, 3], [3, 3]]
 
-    for a in range(4, 5):
+    for a in range(3, 4):
         for skip in range(1):
-            for n in range(len(normaliziation)):
+            for n in range(3, 4):
                 print("Current run is:" + str(utilization[a]) + "-" + str(due_date_settings[a]) + "-" + str(
                     learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(skip_seq[skip]))
                 str1 = "Runs/Attribute_Runs/" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "/Run-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(str(learning_decay_rate[3])) + "-" + str(skip_bid[skip]) + "-" + str(
-                    skip_seq[skip]) + str(n) + ".txt"
+                    skip_seq[skip]) + "-Relearn" + ".txt"
                 str2 = "Runs/Attribute_Runs/" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "/Run-weights-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(
-                    skip_seq[skip]) + str(n)
+                    skip_seq[skip]) + "-Relearn"
                 run_linear(str1, str2, arrival_time[a], due_date_settings[a], learning_decay_rate[3], skip_bid[skip],
                            skip_seq[skip], normaliziation[n], min_jobs[a], max_jobs[a], wip_max[a])
