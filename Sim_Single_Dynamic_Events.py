@@ -786,7 +786,7 @@ if __name__ == '__main__':
     final_std = []
 
     no_runs = 50
-    no_processes = 25
+    no_processes = 5
 
     for j in range(len(utilization)):
         results = []

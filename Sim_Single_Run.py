@@ -59,18 +59,16 @@ def bid_winner(env, jobs, noOfMachines, currentWC, job_shop, machine, store,
     for jj in range(no_of_jobs):
         total_rp[jj] = (remain_processing_time(jobs[jj]))
 
-    queue_length = np.zeros(noOfMachines)
     # Get the bids for all machines
     for jj in range(noOfMachines):
-        # expected_start = 0
-        queue_length[jj] = len(machine[(jj, currentWC - 1)].items)
+        queue_length = len(machine[(jj, currentWC - 1)].items)
         new_bid = [0] * no_of_jobs
         for ii, job in enumerate(jobs):
             attributes = bid_calculation(job_shop.test_weights, machine_number_WC[currentWC - 1][jj],
                                          job.processingTime[job.currentOperation - 1], job.currentOperation,
                                          total_rp[ii], job.dueDate[job.numberOfOperations],
                                          env.now,
-                                         job.priority, queue_length[jj], normaliziation_range)
+                                         job.priority, queue_length, normaliziation_range)
 
             new_bid[ii] = attributes
 
@@ -85,7 +83,7 @@ def bid_winner(env, jobs, noOfMachines, currentWC, job_shop, machine, store,
         bestbid = current_bid[bestmachine]
 
         for ii in dup[1]:
-            if bestbid < current_bid[ii]:
+            if bestbid <= current_bid[ii]:
                 bestbid = current_bid[ii]
                 bestmachine = ii
 
@@ -147,6 +145,7 @@ def next_workstation(job, job_shop, env, min_job, max_job, max_wip):
         job_shop.WIP -= 1
         job_shop.priority[job.number] = job.priority
         job_shop.flowtime[job.number] = finish_time - job.dueDate[0]
+        # finished_job += 1
         if job.number > max_job:
             if np.count_nonzero(job_shop.flowtime[min_job:max_job]) == 2000:
                 job_shop.finish_time = env.now
@@ -333,7 +332,7 @@ def get_objectives(job_shop, min_job, max_job, early_termination):
     early_term = 0
     if early_termination == 1:
         early_term += 1
-        makespan = job_shop.finish_time - job_shop.start_time + 10_000
+        makespan = job_shop.finish_time - job_shop.start_time
         flow_time = np.nanmean(job_shop.flowtime[min_job:max_job]) + 10_000 - np.count_nonzero(
             job_shop.flowtime[min_job:max_job])
         mean_tardiness = np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job])) + 10_000 - np.count_nonzero(
@@ -434,13 +433,12 @@ if __name__ == '__main__':
     final_std = []
 
     no_runs = 100
-    no_processes = 50  # Change dependent on number of threads computer has, be sure to leave 1 thread remaining
+    no_processes = 25  # Change dependent on number of threads computer has, be sure to leave 1 thread remaining
     final_result = np.zeros((no_runs, 9))
     results = []
 
-    for i in range(3, 4):
-        str1 = "Runs/Attribute_Runs/90-6/Run-weights-" + str(utilization[i]) + "-" + str(
-            due_date_settings[i]) + "-1000-[7, 7]-[3, 3]-Relearn" + ".csv"
+    for i in range(len(utilization)):
+        str1 = "Runs/Final_runs/Run-weights-" + str(utilization[i]) + "-" + str(due_date_settings[i]) + ".csv"
         df = pd.read_csv(str1, header=None)
         weights = df.values.tolist()
         print("Current run is: " + str(utilization[i]) + "-" + str(due_date_settings[i]))
@@ -456,13 +454,13 @@ if __name__ == '__main__':
                 final_result[h + j * no_processes][o] = makespan_per_seed[h][o]
 
         results.append(list(np.mean(final_result, axis=0)))
-        print(results)
-    #
+    print(results)
+
     results = pd.DataFrame(results,
                            columns=['Makespan', 'Mean Flow Time', 'Mean Weighted Tardiness', 'Max Weighted Tardiness',
                                     'No. Tardy Jobs P1', 'No. Tardy Jobs P2', 'No. Tardy Jobs P3', 'Mean WIP',
                                     'Early_Term'])
-    file_name = f"Results/Custom_3.csv"
+    file_name = f"Results/Custom_1.csv"
     results.to_csv(file_name)
 
     # arrival_time = [1.5429, 1.5429, 1.5429, 1.4572, 1.4572, 1.4572, 1.3804, 1.3804, 1.3804]

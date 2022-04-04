@@ -22,7 +22,6 @@ from simpy import *
 number = 2500  # Max number of jobs if infinite is false
 noJobCap = True  # For infinite
 maxTime = 10000.0  # Runtime limit
-# Machine shop settings
 processingTimes = [[6.75], [3.75], [7.5]]
 operationOrder = [[1], [1], [1]]
 numberOfOperations = [1, 1, 1]
@@ -30,8 +29,10 @@ machinesPerWC = [3]
 machine_number_WC = [[1, 2, 3]]
 setupTime = [[0, 0.625, 1.25], [0.625, 0, 0.8], [1.25, 0.8, 0]]
 mean_setup = [0.515, 0.306, 0.515, 0.429, 0.306]
-demand = [0.3, 0.5, 0.2]
+demand = [0.2, 0.5, 0.3]
 noOfWC = range(len(machinesPerWC))
+
+
 
 # arrivalMean = 1.4572
 # Mean of arrival process
@@ -46,7 +47,6 @@ noAttributesJob = 4
 totalAttributes = noAttributes + noAttributesJob
 
 no_generation = 1000
-
 
 
 def list_duplicates(seq):
@@ -114,8 +114,6 @@ def bid_winner(env, job, noOfMachines, currentWC, job_shop, last_job, makespan_c
 def bid_calculation(weights_new, machinenumber, processing_time,
                     current, total, due_date_operation, total_rp, due_date, now, job_priority, queue_length, bid_skip,
                     normalization):
-    global attributesTwo
-
     attribute = [0] * noAttributes
     attribute[0] = processing_time / 8.75 * weights_new[machinenumber - 1][0]
     attribute[1] = (current - 1) / (5 - 1) * weights_new[machinenumber - 1][1]
@@ -305,13 +303,34 @@ def source(env, number1, interval, job_shop, due_date_setting):
 class jobShop:
     def __init__(self, env, weights):
         machine_wc1 = {ii: Store(env) for ii in range(machinesPerWC[0])}
+        machine_wc2 = {ii: Store(env) for ii in range(machinesPerWC[1])}
+        machine_wc3 = {ii: Store(env) for ii in range(machinesPerWC[2])}
+        machine_wc4 = {ii: Store(env) for ii in range(machinesPerWC[3])}
+        machine_wc5 = {ii: Store(env) for ii in range(machinesPerWC[4])}
 
         job_poolwc1 = simpy.FilterStore(env)
+        job_poolwc2 = simpy.FilterStore(env)
+        job_poolwc3 = simpy.FilterStore(env)
+        job_poolwc4 = simpy.FilterStore(env)
+        job_poolwc5 = simpy.FilterStore(env)
+
         self.machinesWC1 = machine_wc1
+        self.machinesWC2 = machine_wc2
+        self.machinesWC3 = machine_wc3
+        self.machinesWC4 = machine_wc4
+        self.machinesWC5 = machine_wc5
 
         self.QueuesWC1 = []
+        self.QueuesWC2 = []
+        self.QueuesWC3 = []
+        self.QueuesWC4 = []
+        self.QueuesWC5 = []
 
         self.scheduleWC1 = []
+        self.scheduleWC2 = []
+        self.scheduleWC3 = []
+        self.scheduleWC4 = []
+        self.scheduleWC5 = []
 
         self.condition_flag = []
         for wc in range(len(machinesPerWC)):
@@ -322,10 +341,22 @@ class jobShop:
                 self.condition_flag[wc].append(simpy.Event(env))
 
         self.makespanWC1 = np.zeros(machinesPerWC[0])
+        self.makespanWC2 = np.zeros(machinesPerWC[1])
+        self.makespanWC3 = np.zeros(machinesPerWC[2])
+        self.makespanWC4 = np.zeros(machinesPerWC[3])
+        self.makespanWC5 = np.zeros(machinesPerWC[4])
 
         self.last_job_WC1 = np.zeros(machinesPerWC[0])
+        self.last_job_WC2 = np.zeros(machinesPerWC[1])
+        self.last_job_WC3 = np.zeros(machinesPerWC[2])
+        self.last_job_WC4 = np.zeros(machinesPerWC[3])
+        self.last_job_WC5 = np.zeros(machinesPerWC[4])
 
         self.storeWC1 = job_poolwc1
+        self.storeWC2 = job_poolwc2
+        self.storeWC3 = job_poolwc3
+        self.storeWC4 = job_poolwc4
+        self.storeWC5 = job_poolwc5
 
         self.test_weights = weights
         self.flowtime = []
@@ -338,7 +369,7 @@ class jobShop:
 
 class New_Job:
     def __init__(self, name, env, number1, dueDateTightness):
-        jobType = random.choices([1, 2, 3], weights=[0.3, 0.5, 0.2], k=1)
+        jobType = random.choices([1, 2, 3], weights=demand, k=1)
         jobWeight = random.choices([1, 3, 10], weights=[0.5, 0.3, 0.2], k=1)
         self.type = jobType[0]
         self.priority = jobWeight[0]
@@ -350,10 +381,11 @@ class New_Job:
         self.dueDate[0] = env.now
         self.operationOrder = operationOrder[self.type - 1]
         self.numberOfOperations = numberOfOperations[self.type - 1]
+        self.ddt = random.uniform(dueDateTightness, dueDateTightness + 4)
         for ii in range(self.numberOfOperations):
             meanPT = processingTimes[self.type - 1][ii]
             self.processingTime[ii] = meanPT
-            self.dueDate[ii + 1] = self.dueDate[ii] + self.processingTime[ii] * dueDateTightness
+            self.dueDate[ii + 1] = self.dueDate[ii] + self.processingTime[ii] * self.ddt
 
 
 def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due_date_tightness, bid_skip, seq_skip,
@@ -580,13 +612,14 @@ def run_linear(filename1, filename2, arrival_time_mean, due_date_k, alpha, bid_s
 
 
 if __name__ == '__main__':
-    arrival_time = [2.118, 2.0, 1.895]
     utilization = [85, 90, 95]
+    arrival_time = [2.118, 2.0, 1.895]
     due_date_settings = [4, 4, 4]
     learning_decay_rate = [10, 100, 500, 1000, 2500, 5000, 10000]
     # att_considered = [10, 9, 9, 9, 9, 9, 9, 9, 9, 9]
 
-    normaliziation = [[15, 30, 3.2, 4, -600, 23]]
+    normaliziation = [[-75, 150, -8, 12, -75, 150], [-30, 150, -3, 12, -30, 150], [-200, 150, -15, 12, -200, 150],
+                      [-75, 150, -6, 12, -75, 150], [-275, 150, -28, 12, -275, 150], [-150, 150, -15, 12, -150, 150]]
 
     min_jobs = [499, 499, 999, 999, 1499, 1499]
     max_jobs = [2499, 2499, 2999, 2999, 3499, 3499]
@@ -600,18 +633,16 @@ if __name__ == '__main__':
 
     for a in range(3):
         for skip in range(1):
-            for n in range(1):
+            for n in range(3, 4):
                 print("Current run is:" + str(utilization[a]) + "-" + str(due_date_settings[a]) + "-" + str(
                     learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(skip_seq[skip]))
-                str1 = "Runs/Attribute_Runs/" + str(utilization[a]) + "-" + str(
+                str1 = "DQNRuns/Attribute_Runs/" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "/Run-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(str(learning_decay_rate[3])) + "-" + str(skip_bid[skip]) + "-" + str(
                     skip_seq[skip]) + "-Relearn" + ".txt"
-                str2 = "Runs/Attribute_Runs/" + str(utilization[a]) + "-" + str(
+                str2 = "DQNRuns/Attribute_Runs/" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "/Run-weights-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(
                     skip_seq[skip]) + "-Relearn"
                 run_linear(str1, str2, arrival_time[a], due_date_settings[a], learning_decay_rate[3], skip_bid[skip],
                            skip_seq[skip], normaliziation[n], min_jobs[a], max_jobs[a], wip_max[a])
-
-
