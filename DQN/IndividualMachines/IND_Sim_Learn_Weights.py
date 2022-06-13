@@ -17,7 +17,7 @@ import simpy
 from pathos.multiprocessing import ProcessingPool as Pool
 from simpy import *
 from IND_RL_PAS_Dynamic_Events import jobShop, Info
-from Run_RL_PAS import AllAgent
+from IND_Run_RL_PAS_DE_Performance import AllAgent
 
 # warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
 
@@ -73,11 +73,11 @@ def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due
     done = False
     setting = uti
     inf = Info(setting,False,test_weights_pos)
-    observation = job_shop.reset(inf)
+    observation, next_machine = job_shop.reset(inf)
 
     while not done:
-        action = AllAgent(observation)
-        observation, done, reward = job_shop.step(action)
+        action, next_machine = AllAgent(observation, next_machine)
+        observation, done, reward, next_machine, prev_machine = job_shop.step(action, next_machine)
 
     if job_shop.early_termination == 1:
         if math.isnan(np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job]))):
@@ -103,11 +103,11 @@ def do_simulation_with_weights(mean_weight_new, std_weight_new, arrivalMean, due
     done = False
     setting = uti
     inf = Info(setting, False, test_weights_min)
-    observation = job_shop.reset(inf)
+    observation, next_machine = job_shop.reset(inf)
 
     while not done:
-        action = AllAgent(observation)
-        observation, done, reward = job_shop.step(action)
+        action, next_machine = AllAgent(observation, next_machine)
+        observation, done, reward, next_machine, prev_machine = job_shop.step(action, next_machine)
 
     if job_shop.early_termination == 1:
         if math.isnan(np.nanmean(np.nonzero(job_shop.tardiness[min_job:max_job]))):
@@ -266,17 +266,15 @@ if __name__ == '__main__':
     skip_bid = [[7, 7], [2, 7], [4, 7], [5, 7]]
     skip_seq = [[3, 3], [3, 3], [3, 3], [3, 3]]
 
-    for a in range(2,3):
+    for a in range(0,3):
         for skip in range(1):
             for n in range(1):
                 print("Current run is:" + str(utilization[a]) + "-" + str(due_date_settings[a]) + "-" + str(
                     learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(skip_seq[skip]))
-                str1 = "DQNRuns/Attribute_Runs/" + str(utilization[a]) + "-" + str(
-                    due_date_settings[a]) + "/Run-" + str(utilization[a]) + "-" + str(
+                str1 = "DQNRuns/Run-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(str(learning_decay_rate[3])) + "-" + str(skip_bid[skip]) + "-" + str(
                     skip_seq[skip]) + ".txt"
-                str2 = "DQNRuns/Attribute_Runs/" + str(utilization[a]) + "-" + str(
-                    due_date_settings[a]) + "/Run-weights-" + str(utilization[a]) + "-" + str(
+                str2 = "DQNRuns/Run-weights-" + str(utilization[a]) + "-" + str(
                     due_date_settings[a]) + "-" + str(learning_decay_rate[3]) + "-" + str(skip_bid[skip]) + "-" + str(
                     skip_seq[skip])
                 run_linear(str1, str2, arrival_time[a], due_date_settings[a], learning_decay_rate[3], skip_bid[skip],

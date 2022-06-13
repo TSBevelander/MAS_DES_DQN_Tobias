@@ -6,6 +6,7 @@ The results can then be implemented in the MAS to see the effects.
 import itertools
 import random
 from collections import defaultdict
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -36,8 +37,6 @@ noAttributes = 8
 noAttributesJob = 4
 totalAttributes = noAttributes + noAttributesJob
 
-FTmodel = load('FTmodel85.joblib')
-TDmodel = load('TDmodel85.joblib')
 
 class jobShop:
     """This class creates a job shop, along with everything that is needed to run the Simpy Environment."""
@@ -141,11 +140,7 @@ class jobShop:
         result = [machine, job.type, job_priority, jobsN, t0p0, t0p1, t0p2, t1p0, t1p1, t1p2, t2p0, t2p1, t2p2]
         return result
 
-    def tardiness_estimation2(self, prediction_data, job):
-        FT = FTmodel.predict([prediction_data])
-        finish_time = self.env.now + FT[0]
-        job_tardiness = max(job.priority * (finish_time - job.dueDate[1]), 0)
-        return job_tardiness
+
 
     def bid_winner(self, jobs, noOfMachines, BiddingMachines, currentWC, machine, store,
                    normaliziation_range, weights):
@@ -212,8 +207,6 @@ class jobShop:
             self.cfp_tardiness = self.cfp_tardiness + job_tardiness
             if jobs[vv].number >= self.min_job and jobs[vv].number < self.max_job:
                 self.flow_time_estimate_input[jobs[vv].number-self.min_job] = self.decision_tree_input(jobs[vv],best_bid[ii], machine[(best_bid[ii],0)].items)
-            self.rewards[jobs[vv].number][1] = self.tardiness_estimation2(self.decision_tree_input(jobs[vv],best_bid[ii], machine[(best_bid[ii],0)].items),jobs[vv])
-            self.rewards[jobs[vv].number][2] = max(TDmodel.predict([self.decision_tree_input(jobs[vv],best_bid[ii], machine[(best_bid[ii],0)].items)])[0],0)
             self.put_job_in_queue(currentWC+1, best_bid[ii], jobs[vv], machine)
             self.cfptime[jobs[vv].number] = self.env.now
         #self.cfp_tardiness = self.cfp_tardiness/len(best_job)
@@ -263,14 +256,15 @@ class jobShop:
             store = self.storeWC[nextWC - 1]
             store.put(job)
         else:
-            finish_time = self.env.now
+            job.finish_time = self.env.now
+            self.jobfinishtime[job.number] = self.env.now
             self.totalWIP.append(self.WIP)
-            self.tardiness[job.number] = max(job.priority * (finish_time - job.dueDate[job.numberOfOperations]), 0)
+            self.tardiness[job.number] = max(job.priority * (job.finish_time - job.dueDate[job.numberOfOperations]), 0)
 
             self.WIP -= 1
             self.machinelog[job.number] = machine_number
             self.priority[job.number] = job.priority
-            self.flowtime[job.number] = finish_time - job.dueDate[0]
+            self.flowtime[job.number] = job.finish_time - job.dueDate[0]
             if job.priority == 1:
                 job_priority = 0
             elif job.priority == 3:
@@ -280,7 +274,7 @@ class jobShop:
             self.running_flowtime[machine_number-1][job.type-1][job_priority] = [(self.running_flowtime[machine_number-1][job.type-1][job_priority][0]*self.running_flowtime[machine_number-1][job.type-1][job_priority][1]+self.flowtime[job.number])/(self.running_flowtime[machine_number-1][job.type-1][job_priority][1]+1),self.running_flowtime[machine_number-1][job.type-1][job_priority][1]+1]
             if job.number >= min_job and job.number < max_job:
                 self.flow_time_estimate_output[job.number-min_job] = self.flowtime[job.number]
-                self.tardiness_estimate_output[job.number-min_job] = job.priority * (finish_time - job.dueDate[job.numberOfOperations])
+                self.tardiness_estimate_output[job.number-min_job] = job.priority * (job.finish_time - job.dueDate[job.numberOfOperations])
             # finished_job += 1
             if job.number > max_job:
                 if np.count_nonzero(self.flowtime[min_job:max_job]) == 2000:
@@ -288,11 +282,11 @@ class jobShop:
                     if not self.end_event.triggered:
                         self.end_event.succeed()
 
-            if (self.WIP > max_wip) | (self.env.now > 30_000):
-                if not self.end_event.triggered:
-                    self.end_event.succeed()
-                self.early_termination = 1
-                self.finish_time = self.env.now
+            # if (self.WIP > max_wip) | (self.env.now > 30_000):
+            #     if not self.end_event.triggered:
+            #         self.end_event.succeed()
+            #     self.early_termination = 1
+            #     self.finish_time = self.env.now
 
     def set_makespan(self, current_makespan, job, setup_time):
         """Sets the makespan of a machine"""
@@ -374,7 +368,7 @@ class jobShop:
                         relative_machine, current_WC - 1)] + setuptime + next_job.processingTime[next_job.currentOperation - 1]
                     last_job = next_job.type
                     machine.items.remove(next_job)  # Remove job from queue
-
+                    job_shop.processmachine_per_wc[(relative_machine, current_WC - 1)].put(next_job)
                     done_in = time_in_processing
                     while done_in:
                         try:
@@ -391,6 +385,8 @@ class jobShop:
                     makespan = job_shop.env.now
 
                     job_shop.next_workstation(next_job, min_job, max_job, max_wip, machine_number)  # Send the job to the next workstation
+                    job_shop.processmachine_per_wc[(relative_machine, current_WC - 1)].items.remove(next_job)
+                    job_shop.FJstoreWC[current_WC - 1].put(next_job)
                 else:
                     waiting = 1
                     while waiting:
@@ -433,6 +429,8 @@ class jobShop:
             self.cfptime.append(-1)
             self.rewards.append([-1,-1,-1])
             self.flowtime.append(0)
+            self.dueDate.append(job.dueDate[1])
+            self.jobfinishtime.append(0)
             self.priority.append(0)
             if ii >= self.min_job and ii < self.max_job:
                 self.flow_time_estimate_output.append(0)
@@ -446,81 +444,148 @@ class jobShop:
             yield self.env.timeout(tib)
 
     def cfp_wc_trigger(self, store):
+        yield self.env.timeout(0.01)
         while True:
-            if store.items:
-                self.items_to_bid.succeed()
-                self.items_to_bid = self.env.event()
+            if sum(self.bidding) > 0:
+                if store.items:
+                    NumBiddingMachines, BiddingMachines = self.Bidding_translate()
+                    c = self.bid_winner(self.storeWC[0].items[:10], NumBiddingMachines, BiddingMachines, 0,
+                                        self.machine_per_wc, self.storeWC[0], self.normalization, self.test_weights)
+                    self.env.process(c)
             tib = 0.4
             yield self.env.timeout(tib)
 
-    def action_translate(self,action):
-        if action == 0:
-            NumBiddingMachines = 1
-            BiddingMachines = [0]
-        elif action == 1:
-            NumBiddingMachines = 1
-            BiddingMachines = [1]
-        elif action == 2:
-            NumBiddingMachines = 1
-            BiddingMachines = [2]
-        elif action == 3:
-            NumBiddingMachines = 2
-            BiddingMachines = [0, 1]
-        elif action == 4:
-            NumBiddingMachines = 2
-            BiddingMachines = [0, 2]
-        elif action == 5:
-            NumBiddingMachines = 2
-            BiddingMachines = [1, 2]
-        elif action == 6:
-            NumBiddingMachines = 3
-            BiddingMachines = [0, 1, 2]
+    def Bidding_translate(self):
+        NumBiddingMachines = sum(self.bidding)
+        BiddingMachines = []
+        for i in range(len(self.bidding)):
+            if self.bidding[i] == 1:
+                BiddingMachines.append(i)
         return NumBiddingMachines, BiddingMachines
 
-    def step(self,action):
-        NumBiddingMachines, BiddingMachines = self.action_translate(action)
-        c = self.bid_winner(self.storeWC[0].items[:10], NumBiddingMachines, BiddingMachines, 0,self.machine_per_wc, self.storeWC[0], self.normalization, self.test_weights)
-        self.env.process(c)
+    def action_translate(self, action, next_machine):
+        start_timestep = self.prev_timestep[next_machine]
+        end_timestep = self.timestep[next_machine]
+        prev_machine = next_machine
+        R = 0
+        for job in self.storeWC[0].items:
+            if job.dueDate[1] < end_timestep:
+                Tardiness = job.priority * (end_timestep - job.dueDate[1])
+                R_add = Tardiness - max(0,job.priority * (start_timestep - job.dueDate[1]))
+                #R_add = min(end_timestep-start_timestep,Tardiness/job.priority)*(Tardiness-max((start_timestep-end_timestep)*job.priority+Tardiness,0))*0.5 + \
+                #        min(end_timestep-start_timestep,Tardiness/job.priority)*max((start_timestep-end_timestep)*job.priority+Tardiness,0)
+                R = R + R_add
+        for i in range(3):
+            for job in self.machine_per_wc[(i,0)].items:
+                if job.dueDate[1] < end_timestep:
+                    Tardiness = job.priority * (end_timestep - job.dueDate[1])
+                    R_add = Tardiness - max(0, job.priority * (start_timestep - job.dueDate[1]))
+                    # R_add = min(end_timestep-start_timestep,Tardiness/job.priority)*(Tardiness-max((start_timestep-end_timestep)*job.priority + \
+                    #         Tardiness,0))*0.5+min(end_timestep-start_timestep,Tardiness/job.priority)*max((start_timestep-end_timestep)*job.priority+Tardiness, 0)
+                    R = R + R_add
+            for job in self.processmachine_per_wc[(i,0)].items:
+                if job.dueDate[1] < end_timestep:
+                    Tardiness = job.priority * (end_timestep - job.dueDate[1])
+                    R_add = Tardiness - max(0, job.priority * (start_timestep - job.dueDate[1]))
+                    # R_add = min(end_timestep-start_timestep,Tardiness/job.priority)*(Tardiness-max((start_timestep-end_timestep)*job.priority + \
+                    #         Tardiness,0))*0.5+min(end_timestep-start_timestep,Tardiness/job.priority)*max((start_timestep-end_timestep)*job.priority+Tardiness, 0)
+                    R = R + R_add
+        for job in self.FJstoreWC[0].items:
+            if (job.finish_time > start_timestep) and (job.finish_time < end_timestep):
+                Tardiness = max(job.priority * (job.finish_time - job.dueDate[1]),0)
+                R_add = Tardiness - max(0, job.priority * (start_timestep - job.dueDate[1]))
+                # R_add = min(job.finish_time-start_timestep,Tardiness/job.priority)*(Tardiness-max((start_timestep-job.finish_time)*job.priority+ \
+                #         Tardiness,0))*0.5+min(job.finish_time-start_timestep,Tardiness/job.priority)*max((start_timestep-job.finish_time)*job.priority+Tardiness,0)
+                R = R + R_add
+        for job in self.FJstoreWC[0].items:
+            if job.finish_time < min(self.prev_timestep):
+                self.FJstoreWC[0].items.remove(job)
 
+        self.prev_timestep[next_machine] = self.env.now
 
-        terminal = True if self.end_event.triggered else False
-        reward = self.cfp_tardiness
+        if action == 0:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4*15
+        elif action == 1:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4*25
+        elif action == 2:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4*35
+        elif action == 3:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4 * 15
+        elif action == 4:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4 * 25
+        elif action == 5:
+            self.timestep[next_machine] = self.timestep[next_machine] + 0.4 * 35
+        if action <= 2:
+            self.bidding[next_machine] = 1
+        elif action >= 3:
+            self.bidding[next_machine] = 0
 
-        self.env.run(until=self.items_to_bid)
+        next_machine = self.timestep.index(min(self.timestep))
+        next_timeout = self.timestep[next_machine] - self.env.now
+
+        reward = -R
+        return next_machine, next_timeout, reward, prev_machine
+
+    def step(self,action,next_machine):
+
+        if self.end_event.triggered == True:
+            self.terminal[next_machine] = True
+
+        next_machine, next_timeout, reward, prev_machine = self.action_translate(action, next_machine)
+        self.env.run(until=self.env.timeout(next_timeout))
 
         observation = self.get_environment_state(self.storeWC[0],self.machine_per_wc)
-        return observation, terminal, reward
+        return observation, self.terminal, reward, next_machine, prev_machine
 
     def get_environment_state(self, store, machines):
         observation = []
-        item_amount = min(len(store.items),10)
-        observation.append(item_amount)
-        for ii in range(item_amount):
-            observation.append(store.items[ii].type)
-            observation.append(store.items[ii].priority)
-            observation.append(store.items[ii].processingTime[0])
-            observation.append(max(store.items[ii].dueDate[1]-self.env.now,0))
-        for ii in range(item_amount,10):
-            observation.append(0)
-            observation.append(0)
-            observation.append(10)
-            observation.append(100)
         for ii in range(3):
             machine = machines[(ii,0)]
-            observation.append(len(machine.items))
-            rtuf = self.remaining_time_until_free(machine,self.makespanWC[0][ii],self.last_job_WC[0][ii])
-            observation.append(rtuf)
-            observation.append(self.last_job_WC[0][ii])
-            observation.append(self.env.now-self.last_repair[ii])
+            observation.append(len(machine.items)/25)
+            QL = 0
+            tardiness = []
+            itemtypes = np.zeros(9)
+            amount_tardiness = 0
+            for item in machine.items:
+                QL = QL + item.processingTime[0]
+                tardiness.append(max(item.priority * (self.env.now - item.dueDate[1]), 0))
+                if self.env.now - item.dueDate[1] > 0:
+                    amount_tardiness += 1
+                if item.priority == 1:
+                    prio = 0
+                elif item.priority == 3:
+                    prio = 1
+                elif item.priority == 10:
+                    prio = 2
+                itemtypes[item.type*3-3+prio] = itemtypes[item.type*3-3+prio] + 1
+            if len(tardiness) > 0:
+                mean_tardiness = mean(tardiness)
+                min_tardiness = min(tardiness)
+                max_tardiness = max(tardiness)
+            else:
+                mean_tardiness = 0
+                min_tardiness = 0
+                max_tardiness = 0
+            observation.append(mean_tardiness/20)
+            observation.append(min_tardiness/20)
+            observation.append(max_tardiness/20)
+            observation.append(amount_tardiness/max(len(machine.items),1))
+            observation.append(itemtypes[0]/max(len(machine.items),1))
+            observation.append(itemtypes[1]/max(len(machine.items),1))
+            observation.append(itemtypes[2]/max(len(machine.items),1))
+            observation.append(itemtypes[3]/max(len(machine.items),1))
+            observation.append(itemtypes[4]/max(len(machine.items),1))
+            observation.append(itemtypes[5]/max(len(machine.items),1))
+            observation.append(itemtypes[6]/max(len(machine.items),1))
+            observation.append(itemtypes[7]/max(len(machine.items),1))
+            observation.append(itemtypes[8]/max(len(machine.items),1))
+            observation.append(QL/max(len(machine.items)*7.5,7.5))
+            observation.append(self.last_job_WC[0][ii]/3)
+            observation.append((self.env.now-self.last_repair[ii])/1070)
             if self.machines[ii].broken == True:
                 observation.append(1)
             else:
                 observation.append(0)
-        if len(self.interarrivaltimes)==0:
-            RIAT = 0
-        else:
-            RIAT = np.mean(self.interarrivaltimes[max(len(self.interarrivaltimes)-50,0):len(self.interarrivaltimes)])
-        observation.append(RIAT)
         observation.append(self.WIP)
         observation.append(self.env.now)
         observation.append(0)
@@ -539,31 +604,65 @@ class jobShop:
     def get_breakdown_times(self,MTTA_factor,Ag):
         breakdowntimes = []
         repairtimes = []
+        MTTA_mean = MTTA_factor * 5.4  # mean_processing_time[wc]
+        MTBA_mean = MTTA_mean / Ag - MTTA_mean
         for wc in range(len(machinesPerWC)):
             for ii in range(machinesPerWC[wc]):
                 machine_breakdown_times = []
                 machine_repair_times = []
                 while sum(machine_breakdown_times) < 60_000:
-                    MTTA_mean = MTTA_factor * 5.4 #mean_processing_time[wc]
-                    MTBA_mean = MTTA_mean / Ag - MTTA_mean
-
                     MTTA = random.uniform(0, 2*MTTA_mean)
-                    MTBA = random.expovariate(1 / MTBA_mean)
-
-                    machine_breakdown_times.append(MTBA)
+                    MTBA = np.random.gamma(2,MTBA_mean/2,1)
+                    machine_breakdown_times.append(MTBA[0])
                     machine_repair_times.append(MTTA)
+                    print(MTBA)
                 breakdowntimes.append(machine_breakdown_times)
                 repairtimes.append(machine_repair_times)
         return breakdowntimes, repairtimes
 
     def __init__(self):
+        self.terminal = [False,False,False]
+        self.dueDate = []
+        self.jobfinishtime = []
+        self.end_event = None
+        self.tardiness_estimate_output = None
+        self.flow_time_estimate_output = None
+        self.flow_time_estimate_input = None
+        self.cfp_tardiness = None
+        self.rewards = None
+        self.cfptime = None
+        self.last_repair = None
+        self.arrivaltimes = None
+        self.machines = None
+        self.test_weights = None
+        self.arrival_rate = None
+        self.ddt = None
+        self.max_job = None
+        self.min_job = None
+        self.max_wip = None
+        self.normalization = None
+        self.items_to_bid = None
+        self.time_to_repair = None
+        self.time_to_failure = None
+        self.machinelog = None
+        self.running_flowtime = None
+        self.bidding = None
+        self.condition_flag = None
+        self.FJstoreWC = None
+        self.storeWC = None
+        self.machine_per_wc = None
+        self.env = None
+        self.interarrivaltimes = None
+        self.OBSERVATION_SPACE_SIZE = 6
+        self.ACTION_SPACE_SIZE = 6
         self.QueuesWC = {jj: [] for jj in noOfWC}  # Can be used to keep track of Queue Lenghts
         self.scheduleWC = {ii: [] for ii in noOfWC}  # Used to keep track of the schedule
         self.makespanWC = {ii: np.zeros(machinesPerWC[ii]) for ii in
                            noOfWC}  # Keeps track of the makespan of each machine
         self.last_job_WC = {ii: np.zeros(machinesPerWC[ii]) for ii in
                             noOfWC}  # Keeps track of which job was last in the machine
-
+        self.timestep = [0, 0, 0]
+        self.prev_timestep = [0, 0, 0]
         self.flowtime = []  # Jobs flowtime
         self.tardiness = []  # Jobs tardiness
         self.WIP = 0  # Current WIP of the system
@@ -581,7 +680,10 @@ class jobShop:
         self.env = Environment()
         self.machine_per_wc = {(ii, jj): Store(self.env) for jj in noOfWC for ii in
                                range(machinesPerWC[jj])}  # Used to store jobs in a machine
+        self.processmachine_per_wc = {(ii, jj): Store(self.env) for jj in noOfWC for ii in
+                               range(machinesPerWC[jj])}  # Used to store jobs in a machine
         self.storeWC = {ii: FilterStore(self.env) for ii in noOfWC}  # Used to store jobs in a JPA
+        self.FJstoreWC = {ii: FilterStore(self.env) for ii in noOfWC}
         self.condition_flag = {(ii, jj): simpy.Event(self.env) for jj in noOfWC for ii in range(machinesPerWC[jj])}  # An event which keeps track if a machine has had a job inserted into it if it previously had no job
         self.QueuesWC = {jj: [] for jj in noOfWC}  # Can be used to keep track of Queue Lenghts
         self.scheduleWC = {ii: [] for ii in noOfWC}  # Used to keep track of the schedule
@@ -589,7 +691,9 @@ class jobShop:
                            noOfWC}  # Keeps track of the makespan of each machine
         self.last_job_WC = {ii: np.zeros(machinesPerWC[ii]) for ii in
                             noOfWC}  # Keeps track of which job was last in the machine
-
+        self.timestep = [0,0,0]
+        self.prev_timestep = [0,0,0]
+        self.bidding = [1,1,1]
         self.flowtime = []  # Jobs flowtime
         self.tardiness = []  # Jobs tardiness
         self.running_flowtime = [[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]]],[[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]]],[[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]],[[0,0],[0,0],[0,0]]]
@@ -632,17 +736,18 @@ class jobShop:
             store = self.storeWC[wc]
 
             self.env.process(self.cfp_wc_trigger(store))
-            #self.env.process(self.cfp_wc(self.machine_per_wc, store, wc, self.normalization))
 
             for ii in range(machinesPerWC[wc]):
                 machine = self.machine_per_wc[(ii, wc)]
                 self.machines[ii] = self.Machine(self, wc + 1, machine_number_WC[wc][ii], self.test_weights, self.last_job_WC[wc], machine,
                                self.makespanWC[wc],self.min_job, self.max_job, self.normalization, self.max_wip, self.time_to_failure, self.time_to_repair)
         self.end_event = self.env.event()
-        self.env.run(until=self.items_to_bid)
+        next_machine = self.timestep.index(min(self.timestep))
+        next_timeout = self.timestep[next_machine] - self.env.now
+        self.env.run(until=self.env.timeout(next_timeout))
 
         observation = self.get_environment_state(self.storeWC[0],self.machine_per_wc)
-        return observation
+        return observation, next_machine
 
 class New_Job:
     """ This class is used to create a new job. It contains information
@@ -659,6 +764,7 @@ class New_Job:
         self.processingTime = np.zeros(numberOfOperations[self.type - 1])
         self.dueDate = np.zeros(numberOfOperations[self.type - 1] + 1)
         self.dueDate[0] = env.now
+        self.finish_time = -1
         self.operationOrder = operationOrder[self.type - 1]
         self.numberOfOperations = numberOfOperations[self.type - 1]
         for ii in range(self.numberOfOperations):
